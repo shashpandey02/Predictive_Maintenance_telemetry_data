@@ -14,8 +14,6 @@ from sklearn.svm import SVC
 from sklearn.preprocessing import LabelEncoder
 from catboost import CatBoostClassifier
 
-# Removed deprecated or unsupported option
-# st.set_option('deprecation.showPyplotGlobalUse', False)
 st.set_page_config(page_title="Predictive Model", page_icon="📈")
 def page1():
     st.title(":blue[DATA COLLECTION AND PRE-PROCESSING]")
@@ -194,7 +192,7 @@ def page2():
 
     fig, ax = plt.subplots(figsize=(10, 6))
     failure_trends.plot(kind='bar', color='red', ax=ax)
-    ax.set_title(f"Frequency of Errors for Machine ID - {machine_id}")
+    ax.set_title(f"Frequency of Failure for Machine ID - {machine_id}")
     ax.set_ylabel("Count")
     ax.set_xlabel("Failure Type")
 
@@ -414,7 +412,116 @@ def page3():
     plt.ylabel('Age')
     plt.grid(True)
     st.pyplot(plt)
-        
+def page4():
+    st.title(":blue[MODEL BUILDING]")
+    df = pd.read_csv("Datasets/PdM_telemetry.csv")
+    df5 = pd.read_csv("Datasets/PdM_failures.csv")
+    df['datetime'] = pd.to_datetime(df['datetime'])
+
+    #Group by machineID and daily frequency, and calculate the daily averages
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+    telemetry_daily['volt'] = telemetry_daily['volt']/24
+    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
+
+    #drop any rows with missing values
+    telemetry_daily = telemetry_daily.dropna()
+    # Replae failure column with binary values
+    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'copm3', 'comp4'], 1)
+
+    # Convert failure column to string type
+    df5['failure'] = df5['failure'].astype(str)
+    df5['datetime'] = pd.to_datetime(df5['datetime'])
+    df5.set_index('datetime', inplace= True)
+
+    # Group by machineId  and daily frequency, calculate daily sum
+    df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
+    df5 = df5.reset_index()
+
+    # Normalize the datetime column
+    df5['datetime'] = df5['datetime'].dt.normalize()
+
+    # Merging datasets
+    merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
+    st.write('Shape of dataset after merging:', merge_df.shape)
+
+    # Cleaning failure column
+    # failure_labels = ['comp1', 'comp2', 'comp3', 'comp4', 
+    #                 'comp1comp2', 'comp2comp3', 'comp3comp4', 
+    #                 'comp1comp3', 'comp1comp4', 'comp2comp4', '1', '11']
+    # merge_df['failure'] = merge_df['failure'].replace(failure_labels, 1)
+    # merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+    # merge_df['failure'] = merge_df['failure'].fillna(0).astype(int)
+    # Convert failure column to string
+    merge_df['failure'] = merge_df['failure'].astype(str)
+
+    # Replace known 'nan' strings with actual NaN
+    merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+
+    # Any non-null value (non-zero, string, comp label etc.) → 1
+    merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1)
+
+    # Now it's safe to convert to int
+    merge_df['failure'] = merge_df['failure'].astype(int)
+
+
+    # Show data
+    st.write(merge_df)
+    st.divider()
+
+    # Time and index prep
+    merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
+    merge_df.set_index('datetime', inplace=True)
+
+    # Feature/target split
+    X = merge_df.drop('failure', axis=1)
+    Y = merge_df['failure']
+
+    # Split data
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+    # Train RandomForest
+    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
+    rf_classifier.fit(X_train, Y_train)
+    y_pred = rf_classifier.predict(X_test)
+
+    # Metrics
+    accuracy = accuracy_score(Y_test, y_pred)
+    st.write("Accuracy: ", accuracy)
+
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write("Confusion Matrix:")
+    st.write(cm)
+
+
+    # Training Accuracy
+    # y_train_pred = rf_classifier.predict(X_train)
+    # ac1 = accuracy_score(Y_train, y_train_pred)
+    # st.write('Training Accuracy: ', ac1)
+
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
+    st.divider()
+
+    # Create a SVC support vector classifier
+    sv_classifier = SVC(kernel='rbf', random_state=0)
+    sv_classifier.fit(X_train, Y_train)
+    y_pred = sv_classifier.predict(X_test)
+    
+    # Calculate accuracy 
+    accuracy = accuracy_score(Y_test, y_pred)
+    st.header("Support Vector Classifier")
+    st.write('Accuracy: ', accuracy)
+    # st.divider()
+  
+
+    cm = confusion_matrix(Y_test, y_pred)
+    
+
+
+    
+    
+
     
 
 # Run the function
@@ -424,7 +531,7 @@ pages = {
     "Telemetry": page1,
     "Errors": page2,
     "Machines, Failure + Telemetry": page3, 
-    # "Model Building": page4,
+    "Model Building": page4,
     # "Failure prediction":page5
 }
 
