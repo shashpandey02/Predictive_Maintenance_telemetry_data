@@ -11,8 +11,11 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
+from sklearn.metrics import classification_report
 from sklearn.preprocessing import LabelEncoder
+from imblearn.over_sampling import SMOTE
 from catboost import CatBoostClassifier
+from sklearn.ensemble import VotingClassifier
 
 st.set_page_config(page_title="Predictive Model", page_icon="📈")
 def page1():
@@ -321,6 +324,7 @@ def page3():
 
     # Mean Pressure Variation by Age
     mean_pressure_by_age = merged_df.groupby('age')['pressure'].mean()
+    plt.figure() # start a new figure
     plt.plot(mean_pressure_by_age.index, mean_pressure_by_age.values, marker='o')
     plt.title('Mean Pressure Variation by Age')
     plt.xlabel('Age')
@@ -329,7 +333,8 @@ def page3():
     
     # Mean Rotation Variation by Age
     mean_rotation_by_age = merged_df.groupby('age')['rotate'].mean()
-    plt.plot(mean_rotation_by_age.index, mean_rotation_by_age.values, marker='o')
+    plt.figure() # start a new figure
+    plt.plot(mean_rotation_by_age.index, mean_rotation_by_age.values, marker='o', color='red')
     plt.title('Mean rotation Variation by Age')
     plt.xlabel('Age')
     plt.ylabel('Mean rotation')
@@ -337,7 +342,8 @@ def page3():
     
     # Mean Voltage variation by age
     mean_voltage_by_age = merged_df.groupby('age')['volt'].mean()
-    plt.plot(mean_voltage_by_age.index, mean_voltage_by_age.values, marker='o')
+    plt.figure() # start a new figure
+    plt.plot(mean_voltage_by_age.index, mean_voltage_by_age.values, marker='o', color='green')
     plt.title('Mean voltage Variation by Age')
     plt.xlabel('Age')
     plt.ylabel('Mean voltage')
@@ -345,7 +351,8 @@ def page3():
     
     # Mean Vibration variation by age
     mean_vibration_by_age = merged_df.groupby('age')['vibration'].mean()
-    plt.plot(mean_vibration_by_age.index, mean_vibration_by_age.values, marker='o')
+    plt.figure() # start a new figure
+    plt.plot(mean_vibration_by_age.index, mean_vibration_by_age.values, marker='o', color='orange')
     plt.title('Mean vibration Variation by Age')
     plt.xlabel('Age')
     plt.ylabel('Mean vibration')
@@ -412,6 +419,7 @@ def page3():
     plt.ylabel('Age')
     plt.grid(True)
     st.pyplot(plt)
+    
 def page4():
     st.title(":blue[MODEL BUILDING]")
     df = pd.read_csv("Datasets/PdM_telemetry.csv")
@@ -469,7 +477,7 @@ def page4():
     # Show data
     st.write(merge_df)
     st.divider()
-
+    st.header('Random Forest Classifier')
     # Time and index prep
     merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
     merge_df.set_index('datetime', inplace=True)
@@ -487,25 +495,40 @@ def page4():
     y_pred = rf_classifier.predict(X_test)
 
     # Metrics
+    # accuracy = accuracy_score(Y_test, y_pred)
+    # st.write("Accuracy: ", accuracy)
+
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write("Confusion Matrix:")
+    # st.write(cm)
+    # # classification report
+    # st.text("Classification Report:")
+    # st.text(classification_report(Y_test, y_pred, target_names=['No Failure', 'Failure']))
+    
+    # SMOTE to generate more failures synthetically
+    smote = SMOTE(random_state=42)
+    X_resampled, y_resampled = smote.fit_resample(X_train, Y_train)
+    rf_classifier.fit(X_resampled, y_resampled)
+    y_pred = rf_classifier.predict(X_test)
+    # Accuracy
     accuracy = accuracy_score(Y_test, y_pred)
-    st.write("Accuracy: ", accuracy)
-
     cm = confusion_matrix(Y_test, y_pred)
-    st.write("Confusion Matrix:")
+    st.write(accuracy)
     st.write(cm)
-
 
     # Training Accuracy
     # y_train_pred = rf_classifier.predict(X_train)
     # ac1 = accuracy_score(Y_train, y_train_pred)
     # st.write('Training Accuracy: ', ac1)
 
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
     st.divider()
-
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
+    # Apply SMOTE again on this split
+    smote = SMOTE(random_state=0)
+    X_resampled_svc, y_resampled_svc = smote.fit_resample(X_train, Y_train)
     # Create a SVC support vector classifier
-    sv_classifier = SVC(kernel='rbf', random_state=0)
-    sv_classifier.fit(X_train, Y_train)
+    sv_classifier = SVC(kernel='rbf', random_state=0, probability=True)
+    sv_classifier.fit(X_resampled_svc, y_resampled_svc)
     y_pred = sv_classifier.predict(X_test)
     
     # Calculate accuracy 
@@ -514,10 +537,61 @@ def page4():
     st.write('Accuracy: ', accuracy)
     # st.divider()
   
-
+    #confusion matrix
     cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
     
-
+    #LOGISTIC REGRESSION - NEWTON CG 
+    st.divider()
+    st.header('Logistic Regression - netwon-cg solver')
+    # X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    smote = SMOTE(random_state=42)
+    X_resampled_lr, y_resampled_lr = smote.fit_resample(X_train, Y_train)
+    lr = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
+    lr.fit(X_resampled_lr, y_resampled_lr)
+    
+    y_pred = lr.predict(X_test)
+    accuracy = accuracy_score(Y_test, y_pred)
+    st.write('Accuracy: ', accuracy)
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
+    
+    # After confusion matrix
+    # st.text("Classification Report:")
+    # st.text(classification_report(Y_test, y_pred, target_names=['No Failure', 'Failure']))
+    
+    st.header(':blue[Ensemble Model]')
+    
+    # Define base models
+    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
+    sv_classifier = SVC(kernel='rbf', probability=True, random_state=0)  
+    lr = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
+    
+    smote = SMOTE(random_state=42)
+    X_resampled, y_resampled = smote.fit_resample(X_train, Y_train)
+    
+    # Fit models
+    rf_classifier.fit(X_resampled, y_resampled)
+    sv_classifier.fit(X_resampled, y_resampled)
+    lr.fit(X_resampled, y_resampled)
+    
+    # Combine into a voting classifier (hard voting by default)
+    ensemble_model = VotingClassifier(estimators=[
+        ('rf', rf_classifier),
+        ('svc', sv_classifier),
+        ('lr', lr)
+    ], voting='soft') # soft voting uses predicted probabilities
+    
+    ensemble_model.fit(X_resampled, y_resampled)
+    
+    y_pred = ensemble_model.predict(X_test)
+    acc = accuracy_score(Y_test, y_pred)
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write("Accuracy: ", acc)
+    st.write(cm)
+    
+    
+    
 
     
     
