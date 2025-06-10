@@ -16,24 +16,33 @@ from sklearn.preprocessing import LabelEncoder
 from imblearn.over_sampling import SMOTE
 from catboost import CatBoostClassifier
 from sklearn.ensemble import VotingClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 @st.cache_resource
 def train_models(X_train, y_train):
-    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
-    rf_classifier.fit(X_train, y_train)
+    
+    smote = SMOTE(random_state=42, n_jobs=-1)  # Use all CPU cores
+    X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+    
+    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced', n_jobs=-1)
+    rf_classifier.fit(X_resampled, y_resampled)
 
-    svc = SVC(kernel='rbf', random_state=0, probability=True)
-    svc.fit(X_train, y_train)
+    svc_pipeline = Pipeline([
+        ("scaler", StandardScaler()),  # Helps with SVM performance
+        ("svc", SVC(kernel="linear", probability=False, random_state=42))
+    ])
+    svc_pipeline.fit(X_resampled, y_resampled)
 
-    logreg = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
-    logreg.fit(X_train, y_train)
+    logreg = LogisticRegression(solver='saga', class_weight='balanced', max_iter=300, penalty='l2')
+    logreg.fit(X_resampled, y_resampled)
 
     ensemble = VotingClassifier(estimators=[
-        ('rf', rf_classifier), ('svc', svc), ('logreg', logreg)
-    ], voting='soft')
-    ensemble.fit(X_train, y_train)
+        ('rf', rf_classifier), ('svc', svc_pipeline), ('logreg', logreg)
+    ], voting='hard')
+    ensemble.fit(X_resampled, y_resampled)
 
-    return rf_classifier, svc, logreg, ensemble
+    return rf_classifier, svc_pipeline, logreg, ensemble
 
 
 st.set_page_config(page_title="Predictive Model", page_icon="📈")
@@ -496,7 +505,6 @@ def page4():
     # Show data
     st.write(merge_df)
     st.divider()
-    st.header('Random Forest Classifier')
     # Time and index prep
     merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
     merge_df.set_index('datetime', inplace=True)
@@ -507,12 +515,22 @@ def page4():
 
     # Split data
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    
+    # SMOTE
+    # smote = SMOTE(random_state=42)
+    # X_resampled, Y_resampled = smote.fit_resample(X_train, Y_train)
     rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
+    
     # RANDOM FOREST CLASSIFIER
     st.header("Random Forest Classifier")
     y_pred = rf.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
+    
+    # confusion Matrix
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
+    
 
     st.divider()
     # SVC 
@@ -520,6 +538,9 @@ def page4():
     y_pred = svc.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
+    # confusion Matrix
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
 
     # LOGISTIC REGRESSION : NEWTON METHOD
     st.divider()
@@ -527,13 +548,20 @@ def page4():
     y_pred = lr.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
-
+    # confusion Matrix
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
+    
     # Ensemble Model
     st.divider()
     st.header('Ensemble Model')
     y_pred = ensemble_model.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
+    
+    # confusion Matrix
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
     
 
     # # Train RandomForest
