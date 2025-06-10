@@ -17,6 +17,25 @@ from imblearn.over_sampling import SMOTE
 from catboost import CatBoostClassifier
 from sklearn.ensemble import VotingClassifier
 
+@st.cache_resource
+def train_models(X_train, y_train):
+    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
+    rf_classifier.fit(X_train, y_train)
+
+    svc = SVC(kernel='rbf', random_state=0, probability=True)
+    svc.fit(X_train, y_train)
+
+    logreg = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
+    logreg.fit(X_train, y_train)
+
+    ensemble = VotingClassifier(estimators=[
+        ('rf', rf_classifier), ('svc', svc), ('logreg', logreg)
+    ], voting='soft')
+    ensemble.fit(X_train, y_train)
+
+    return rf_classifier, svc, logreg, ensemble
+
+
 st.set_page_config(page_title="Predictive Model", page_icon="📈")
 def page1():
     st.title(":blue[DATA COLLECTION AND PRE-PROCESSING]")
@@ -488,110 +507,212 @@ def page4():
 
     # Split data
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-    # Train RandomForest
-    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
-    rf_classifier.fit(X_train, Y_train)
-    y_pred = rf_classifier.predict(X_test)
-
-    # Metrics
-    # accuracy = accuracy_score(Y_test, y_pred)
-    # st.write("Accuracy: ", accuracy)
-
-    # cm = confusion_matrix(Y_test, y_pred)
-    # st.write("Confusion Matrix:")
-    # st.write(cm)
-    # # classification report
-    # st.text("Classification Report:")
-    # st.text(classification_report(Y_test, y_pred, target_names=['No Failure', 'Failure']))
-    
-    # SMOTE to generate more failures synthetically
-    smote = SMOTE(random_state=42)
-    X_resampled, y_resampled = smote.fit_resample(X_train, Y_train)
-    rf_classifier.fit(X_resampled, y_resampled)
-    y_pred = rf_classifier.predict(X_test)
-    # Accuracy
-    accuracy = accuracy_score(Y_test, y_pred)
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(accuracy)
-    st.write(cm)
-
-    # Training Accuracy
-    # y_train_pred = rf_classifier.predict(X_train)
-    # ac1 = accuracy_score(Y_train, y_train_pred)
-    # st.write('Training Accuracy: ', ac1)
+    rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
+    # RANDOM FOREST CLASSIFIER
+    st.header("Random Forest Classifier")
+    y_pred = rf.predict(X_test)
+    ac = accuracy_score(Y_test, y_pred)
+    st.write("Accuracy: ", ac)
 
     st.divider()
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
-    # Apply SMOTE again on this split
-    smote = SMOTE(random_state=0)
-    X_resampled_svc, y_resampled_svc = smote.fit_resample(X_train, Y_train)
-    # Create a SVC support vector classifier
-    sv_classifier = SVC(kernel='rbf', random_state=0, probability=True)
-    sv_classifier.fit(X_resampled_svc, y_resampled_svc)
-    y_pred = sv_classifier.predict(X_test)
-    
-    # Calculate accuracy 
-    accuracy = accuracy_score(Y_test, y_pred)
+    # SVC 
     st.header("Support Vector Classifier")
-    st.write('Accuracy: ', accuracy)
-    # st.divider()
-  
-    #confusion matrix
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(cm)
-    
-    #LOGISTIC REGRESSION - NEWTON CG 
+    y_pred = svc.predict(X_test)
+    ac = accuracy_score(Y_test, y_pred)
+    st.write("Accuracy: ", ac)
+
+    # LOGISTIC REGRESSION : NEWTON METHOD
     st.divider()
-    st.header('Logistic Regression - netwon-cg solver')
-    # X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    smote = SMOTE(random_state=42)
-    X_resampled_lr, y_resampled_lr = smote.fit_resample(X_train, Y_train)
-    lr = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
-    lr.fit(X_resampled_lr, y_resampled_lr)
-    
+    st.header("Logistic Regression - netwon-cg solver")
     y_pred = lr.predict(X_test)
-    accuracy = accuracy_score(Y_test, y_pred)
-    st.write('Accuracy: ', accuracy)
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(cm)
-    
-    # After confusion matrix
-    # st.text("Classification Report:")
-    # st.text(classification_report(Y_test, y_pred, target_names=['No Failure', 'Failure']))
-    
-    st.header(':blue[Ensemble Model]')
-    
-    # Define base models
-    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
-    sv_classifier = SVC(kernel='rbf', probability=True, random_state=0)  
-    lr = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
-    
-    smote = SMOTE(random_state=42)
-    X_resampled, y_resampled = smote.fit_resample(X_train, Y_train)
-    
-    # Fit models
-    rf_classifier.fit(X_resampled, y_resampled)
-    sv_classifier.fit(X_resampled, y_resampled)
-    lr.fit(X_resampled, y_resampled)
-    
-    # Combine into a voting classifier (hard voting by default)
-    ensemble_model = VotingClassifier(estimators=[
-        ('rf', rf_classifier),
-        ('svc', sv_classifier),
-        ('lr', lr)
-    ], voting='soft') # soft voting uses predicted probabilities
-    
-    ensemble_model.fit(X_resampled, y_resampled)
-    
+    ac = accuracy_score(Y_test, y_pred)
+    st.write("Accuracy: ", ac)
+
+    # Ensemble Model
+    st.divider()
+    st.header('Ensemble Model')
     y_pred = ensemble_model.predict(X_test)
-    acc = accuracy_score(Y_test, y_pred)
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write("Accuracy: ", acc)
-    st.write(cm)
+    ac = accuracy_score(Y_test, y_pred)
+    st.write("Accuracy: ", ac)
     
+
+    # # Train RandomForest
+    # rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
+    # rf_classifier.fit(X_train, Y_train)
+    # y_pred = rf_classifier.predict(X_test)
+
+    # # Metrics
+    # # accuracy = accuracy_score(Y_test, y_pred)
+    # # st.write("Accuracy: ", accuracy)
+
+    # # cm = confusion_matrix(Y_test, y_pred)
+    # # st.write("Confusion Matrix:")
+    # # st.write(cm)
+    # # # classification report
+    # # st.text("Classification Report:")
+    # # st.text(classification_report(Y_test, y_pred, target_names=['No Failure', 'Failure']))
     
+    # # SMOTE to generate more failures synthetically
+    # smote = SMOTE(random_state=42)
+    # X_resampled, y_resampled = smote.fit_resample(X_train, Y_train)
+    # rf_classifier.fit(X_resampled, y_resampled)
+    # y_pred = rf_classifier.predict(X_test)
+    # # Accuracy
+    # accuracy = accuracy_score(Y_test, y_pred)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(accuracy)
+    # st.write(cm)
+
+    # # Training Accuracy
+    # # y_train_pred = rf_classifier.predict(X_train)
+    # # ac1 = accuracy_score(Y_train, y_train_pred)
+    # # st.write('Training Accuracy: ', ac1)
+
+    # st.divider()
+    # X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
+    # # Apply SMOTE again on this split
+    # smote = SMOTE(random_state=0)
+    # X_resampled_svc, y_resampled_svc = smote.fit_resample(X_train, Y_train)
+    # # Create a SVC support vector classifier
+    # sv_classifier = SVC(kernel='rbf', random_state=0, probability=True)
+    # sv_classifier.fit(X_resampled_svc, y_resampled_svc)
+    # y_pred = sv_classifier.predict(X_test)
     
+    # # Calculate accuracy 
+    # accuracy = accuracy_score(Y_test, y_pred)
+    # st.header("Support Vector Classifier")
+    # st.write('Accuracy: ', accuracy)
+    # # st.divider()
+  
+    # #confusion matrix
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(cm)
+    
+    # #LOGISTIC REGRESSION - NEWTON CG 
+    # st.divider()
+    # st.header('Logistic Regression - netwon-cg solver')
+    # # X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    # smote = SMOTE(random_state=42)
+    # X_resampled_lr, y_resampled_lr = smote.fit_resample(X_train, Y_train)
+    # lr = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
+    # lr.fit(X_resampled_lr, y_resampled_lr)
+    
+    # y_pred = lr.predict(X_test)
+    # accuracy = accuracy_score(Y_test, y_pred)
+    # st.write('Accuracy: ', accuracy)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(cm)
+    
+    # # After confusion matrix
+    # # st.text("Classification Report:")
+    # # st.text(classification_report(Y_test, y_pred, target_names=['No Failure', 'Failure']))
+    
+    # st.header(':blue[Ensemble Model]')
+    
+    # # Define base models
+    # rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced')
+    # sv_classifier = SVC(kernel='rbf', probability=True, random_state=0)  
+    # lr = LogisticRegression(solver='newton-cg', class_weight='balanced', max_iter=1000)
+    
+    # smote = SMOTE(random_state=42)
+    # X_resampled, y_resampled = smote.fit_resample(X_train, Y_train)
+    
+    # # Fit models
+    # rf_classifier.fit(X_resampled, y_resampled)
+    # sv_classifier.fit(X_resampled, y_resampled)
+    # lr.fit(X_resampled, y_resampled)
+    
+    # # Combine into a voting classifier (hard voting by default)
+    # ensemble_model = VotingClassifier(estimators=[
+    #     ('rf', rf_classifier),
+    #     ('svc', sv_classifier),
+    #     ('lr', lr)
+    # ], voting='soft') # soft voting uses predicted probabilities
+    
+    # ensemble_model.fit(X_resampled, y_resampled)
+    
+    # y_pred = ensemble_model.predict(X_test)
+    # acc = accuracy_score(Y_test, y_pred)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write("Accuracy: ", acc)
+    # st.write(cm)
+    
+def page5():
+    st.title(':blue[FAILURE PREDICTION]')
+
+    df = pd.read_csv("Datasets/PdM_telemetry.csv")
+    df5 = pd.read_csv("Datasets/PdM_failures.csv")
+    df['datetime'] = pd.to_datetime(df['datetime'])
+
+    #Group by machineID and daily frequency, and calculate the daily averages
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+    telemetry_daily['volt'] = telemetry_daily['volt']/24
+    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
+
+    #drop any rows with missing values
+    telemetry_daily = telemetry_daily.dropna()
+    # Replae failure column with binary values
+    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'copm3', 'comp4'], 1)
+
+    # Convert failure column to string type
+    df5['failure'] = df5['failure'].astype(str)
+    df5['datetime'] = pd.to_datetime(df5['datetime'])
+    df5.set_index('datetime', inplace= True)
+
+    # Group by machineId  and daily frequency, calculate daily sum
+    df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
+    df5 = df5.reset_index()
+
+    # Normalize the datetime column
+    df5['datetime'] = df5['datetime'].dt.normalize()
+
+    # Merging datasets
+    merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
+    # Convert failure column to string
+    merge_df['failure'] = merge_df['failure'].astype(str)
+
+    # Replace known 'nan' strings with actual NaN
+    merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+
+    # Any non-null value (non-zero, string, comp label etc.) → 1
+    merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1)
+
+    # Now it's safe to convert to int
+    merge_df['failure'] = merge_df['failure'].astype(int)
+
+    # Time and index prep
+    merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
+    merge_df.set_index('datetime', inplace=True)
+
+    # Feature/target split
+    X = merge_df[['volt', 'rotate', 'pressure', 'vibration']]
+    Y = merge_df['failure']
+
+    # Split data
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    
+
+
+
+    # Get user input
+    pressure = st.number_input("Pressure", min_value=0.0)
+    volt = st.number_input("Volt", min_value=0.0)
+    vibration = st.number_input("Vibration", min_value=0.0)
+    rotate = st.number_input("Rotate", min_value=0.0)
+
+    user_input = np.array([[volt, rotate, pressure, vibration]])
+
+    if st.button("Predict"):
+        rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
+        y_pred = ensemble_model.predict(user_input)
+        probability = ensemble_model.predict_proba(user_input)[0][1] # Probability of class 1
+
+        if y_pred[0] == 1:
+            st.error(f"⚠️ Failure Predicted with Probability: **{probability:.2%}**")
+        else:
+            st.success(f"✅ No Failure Predicted. Failure Probability: **{probability:.2%}**")
 
     
     
@@ -606,7 +727,7 @@ pages = {
     "Errors": page2,
     "Machines, Failure + Telemetry": page3, 
     "Model Building": page4,
-    # "Failure prediction":page5
+    "Failure prediction":page5
 }
 
 # Create a sidebar or navigation menu
