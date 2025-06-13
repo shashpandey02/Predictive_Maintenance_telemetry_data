@@ -18,29 +18,30 @@ from catboost import CatBoostClassifier
 from sklearn.ensemble import VotingClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+import joblib
 
 @st.cache_resource
 def train_models(X_train, y_train):
     
     smote = SMOTE(random_state=42, n_jobs=-1)  # Use all CPU cores
-    X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+    X_train, y_train = smote.fit_resample(X_train, y_train)
     
     rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced', n_jobs=-1)
-    rf_classifier.fit(X_resampled, y_resampled)
+    rf_classifier.fit(X_train, y_train)
 
     svc_pipeline = Pipeline([
         ("scaler", StandardScaler()),  # Helps with SVM performance
-        ("svc", SVC(kernel="linear", probability=False, random_state=42))
+        ("svc", SVC(kernel="linear", probability=True, random_state=42))
     ])
-    svc_pipeline.fit(X_resampled, y_resampled)
+    svc_pipeline.fit(X_train, y_train)
 
     logreg = LogisticRegression(solver='saga', class_weight='balanced', max_iter=300, penalty='l2')
-    logreg.fit(X_resampled, y_resampled)
+    logreg.fit(X_train, y_train)
 
     ensemble = VotingClassifier(estimators=[
         ('rf', rf_classifier), ('svc', svc_pipeline), ('logreg', logreg)
-    ], voting='hard')
-    ensemble.fit(X_resampled, y_resampled)
+    ], voting='soft')
+    ensemble.fit(X_train, y_train)
 
     return rf_classifier, svc_pipeline, logreg, ensemble
 
@@ -248,6 +249,49 @@ def page2():
     sum_diff=machine_id_1_df['Difference'].sum()
     mean_diff=sum_diff/(len(machine_id_1_df)-1)
     st.write(f":blue[Average number of days between two failures for Machine ID: {machine_id} -]", int(mean_diff))
+    #############################################################################################################################
+    telemetry_df = pd.read_csv("Datasets/PdM_telemetry.csv")
+    failure_df = pd.read_csv("Datasets/PdM_failures.csv")
+    
+    telemetry_df['datetime'] = pd.to_datetime(telemetry_df['datetime'])
+    failure_df['datetime'] = pd.to_datetime(failure_df['datetime'])
+    
+
+    
+    failure_df['failure_flag'] = 1
+
+
+    # Merge telemetry with failure on datetime and machineID, left join to keep all telemetry rows
+    m_df = telemetry_df.merge(
+        failure_df[['datetime', 'machineID', 'failure_flag']], 
+        on=['datetime', 'machineID'], 
+        how='left'
+    )
+
+    # Fill NaN failure_flag with 0 (means no failure at that time)
+    m_df['failure_flag'] = m_df['failure_flag'].fillna(0).astype(int)
+
+    # Rename failure_flag to failure for clarity
+    m_df = m_df.rename(columns={'failure_flag': 'failure'})
+    # st.write(merge_df)
+    
+    m_df['datetime'] = pd.to_datetime(m_df['datetime'])
+    m_df.set_index('datetime', inplace=True)
+    
+    X = m_df.drop(['failure','machineID'], axis=1)
+    Y = m_df['failure']
+    
+    # Count total failures per machine
+    failures_per_machine = m_df.groupby('machineID')['failure'].sum().reset_index()
+
+    # Top 3 machines with max failures
+    top_3_max = failures_per_machine.sort_values(by='failure', ascending=False).head(3)
+
+    # Top 3 machines with min failures (excluding machines with zero failures if you want)
+    top_3_min = failures_per_machine[failures_per_machine['failure'] > 0].sort_values(by='failure', ascending=True).head(3)
+
+    st.write("Top 3 machines with max failures:\n", top_3_max)
+    st.write("\nTop 3 machines with min failures:\n", top_3_min)
 
     ###############################################
     st.divider()
@@ -482,14 +526,6 @@ def page4():
     merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
     st.write('Shape of dataset after merging:', merge_df.shape)
 
-    # Cleaning failure column
-    # failure_labels = ['comp1', 'comp2', 'comp3', 'comp4', 
-    #                 'comp1comp2', 'comp2comp3', 'comp3comp4', 
-    #                 'comp1comp3', 'comp1comp4', 'comp2comp4', '1', '11']
-    # merge_df['failure'] = merge_df['failure'].replace(failure_labels, 1)
-    # merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
-    # merge_df['failure'] = merge_df['failure'].fillna(0).astype(int)
-    # Convert failure column to string
     merge_df['failure'] = merge_df['failure'].astype(str)
 
     # Replace known 'nan' strings with actual NaN
@@ -508,18 +544,21 @@ def page4():
     # Time and index prep
     merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
     merge_df.set_index('datetime', inplace=True)
+    
 
-    # Feature/target split
-    X = merge_df.drop('failure', axis=1)
-    Y = merge_df['failure']
 
     # Split data
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    
+    X_test = X_test.drop(columns=['machineID'])
     # SMOTE
     # smote = SMOTE(random_state=42)
     # X_resampled, Y_resampled = smote.fit_resample(X_train, Y_train)
-    rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
+    # rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
+    # joblib.dump(rf, "rf_model.pkl")
+    # joblib.dump(svc, "svc_pipeline.pkl")
+    # joblib.dump(lr, "logreg_model.pkl")
+    # joblib.dump(ensemble_model, "ensemble_model.pkl")
+    rf = joblib.load('models/rf_model.pkl') 
     
     # RANDOM FOREST CLASSIFIER
     st.header("Random Forest Classifier")
@@ -528,40 +567,43 @@ def page4():
     st.write("Accuracy: ", ac)
     
     # confusion Matrix
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(cm)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(cm)
     
 
     st.divider()
-    # SVC 
+    # SVC
+    svc = joblib.load('models/svc_pipeline.pkl') 
     st.header("Support Vector Classifier")
     y_pred = svc.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
     # confusion Matrix
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(cm)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(cm)
 
     # LOGISTIC REGRESSION : NEWTON METHOD
     st.divider()
+    lr = joblib.load('models/logreg_model.pkl')
     st.header("Logistic Regression - netwon-cg solver")
     y_pred = lr.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
     # confusion Matrix
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(cm)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(cm)
     
     # Ensemble Model
     st.divider()
+    ensemble_model = joblib.load('models/ensemble_model.pkl')
     st.header('Ensemble Model')
     y_pred = ensemble_model.predict(X_test)
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
     
     # confusion Matrix
-    cm = confusion_matrix(Y_test, y_pred)
-    st.write(cm)
+    # cm = confusion_matrix(Y_test, y_pred)
+    # st.write(cm)
     
 
     # # Train RandomForest
@@ -721,7 +763,7 @@ def page5():
     # Split data
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
     
-
+    st.write(df.describe())
 
 
     # Get user input
@@ -731,18 +773,75 @@ def page5():
     rotate = st.number_input("Rotate", min_value=0.0)
 
     user_input = np.array([[volt, rotate, pressure, vibration]])
-
+    ensemble_model = joblib.load('models/ensemble_model.pkl')
+    # rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
     if st.button("Predict"):
-        rf, svc, lr, ensemble_model = train_models(X_train, Y_train)
-        y_pred = ensemble_model.predict(user_input)
-        probability = ensemble_model.predict_proba(user_input)[0][1] # Probability of class 1
-
-        if y_pred[0] == 1:
-            st.error(f"⚠️ Failure Predicted with Probability: **{probability:.2%}**")
+        if not (volt > 0 and rotate > 0 and pressure > 0 and vibration > 0):
+            st.error("❌ One or more telemetry values are out of expected range.")
         else:
-            st.success(f"✅ No Failure Predicted. Failure Probability: **{probability:.2%}**")
+            y_pred = ensemble_model.predict(user_input)
+            probability = ensemble_model.predict_proba(user_input)[0][1] # Probability of class 1
+
+            if y_pred[0] == 1:
+                st.error(f"⚠️ Failure Predicted with Probability: **{probability:.2%}**")
+            else:
+                st.success(f"✅ No Failure Predicted. Failure Probability: **{probability:.2%}**")
+
+def page6(): 
+    st.header(":blue[Failure Prediction by MachineID]")
+    
+    telemetry_df = pd.read_csv("Datasets/PdM_telemetry.csv")
+    failure_df = pd.read_csv("Datasets/PdM_failures.csv")
+    
+    telemetry_df['datetime'] = pd.to_datetime(telemetry_df['datetime'])
+    failure_df['datetime'] = pd.to_datetime(failure_df['datetime'])
+    
 
     
+    failure_df['failure_flag'] = 1
+
+
+    # Merge telemetry with failure on datetime and machineID, left join to keep all telemetry rows
+    merge_df = telemetry_df.merge(
+        failure_df[['datetime', 'machineID', 'failure_flag']], 
+        on=['datetime', 'machineID'], 
+        how='left'
+    )
+
+    # Fill NaN failure_flag with 0 (means no failure at that time)
+    merge_df['failure_flag'] = merge_df['failure_flag'].fillna(0).astype(int)
+
+    # Rename failure_flag to failure for clarity
+    merge_df = merge_df.rename(columns={'failure_flag': 'failure'})
+    st.write(merge_df)
+    
+    merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
+    merge_df.set_index('datetime', inplace=True)
+    
+    X = merge_df.drop(['failure','machineID'], axis=1)
+    Y = merge_df['failure']
+    
+    # Count total failures per machine
+    failures_per_machine = merge_df.groupby('machineID')['failure'].sum().reset_index()
+
+    # Top 3 machines with max failures
+    top_3_max = failures_per_machine.sort_values(by='failure', ascending=False).head(3)
+
+    # Top 3 machines with min failures (excluding machines with zero failures if you want)
+    top_3_min = failures_per_machine[failures_per_machine['failure'] > 0].sort_values(by='failure', ascending=True).head(3)
+
+    st.write("Top 3 machines with max failures:\n", top_3_max)
+    st.write("\nTop 3 machines with min failures:\n", top_3_min)
+
+    
+
+    
+    
+    
+    
+
+
+
     
 
     
@@ -755,7 +854,8 @@ pages = {
     "Errors": page2,
     "Machines, Failure + Telemetry": page3, 
     "Model Building": page4,
-    "Failure prediction":page5
+    "Failure prediction":page5,
+    "Error prediction":page6
 }
 
 # Create a sidebar or navigation menu
