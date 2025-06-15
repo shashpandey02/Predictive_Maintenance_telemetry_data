@@ -250,48 +250,60 @@ def page2():
     mean_diff=sum_diff/(len(machine_id_1_df)-1)
     st.write(f":blue[Average number of days between two failures for Machine ID: {machine_id} -]", int(mean_diff))
     #############################################################################################################################
-    telemetry_df = pd.read_csv("Datasets/PdM_telemetry.csv")
-    failure_df = pd.read_csv("Datasets/PdM_failures.csv")
     
-    telemetry_df['datetime'] = pd.to_datetime(telemetry_df['datetime'])
-    failure_df['datetime'] = pd.to_datetime(failure_df['datetime'])
-    
-
-    
-    failure_df['failure_flag'] = 1
+    df = pd.read_csv("Datasets/PdM_telemetry.csv")
+    df5 = pd.read_csv("Datasets/PdM_failures.csv")
 
 
-    # Merge telemetry with failure on datetime and machineID, left join to keep all telemetry rows
-    m_df = telemetry_df.merge(
-        failure_df[['datetime', 'machineID', 'failure_flag']], 
-        on=['datetime', 'machineID'], 
-        how='left'
-    )
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    df5['datetime'] = pd.to_datetime(df5['datetime'])
 
-    # Fill NaN failure_flag with 0 (means no failure at that time)
-    m_df['failure_flag'] = m_df['failure_flag'].fillna(0).astype(int)
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).mean().reset_index()
 
-    # Rename failure_flag to failure for clarity
-    m_df = m_df.rename(columns={'failure_flag': 'failure'})
-    # st.write(merge_df)
-    
-    m_df['datetime'] = pd.to_datetime(m_df['datetime'])
-    m_df.set_index('datetime', inplace=True)
-    
-    X = m_df.drop(['failure','machineID'], axis=1)
-    Y = m_df['failure']
-    
-    # Count total failures per machine
-    failures_per_machine = m_df.groupby('machineID')['failure'].sum().reset_index()
+    #drop any rows with missing values
+    telemetry_daily = telemetry_daily.dropna()
+    # Daily failures per machine
+    df5 = df5.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
 
-    # Top 3 machines with max failures
-    top_3_max = failures_per_machine.sort_values(by='failure', ascending=False).head(3)
+    # Merge telemetry and failure data
+    # merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
 
-    # Top 3 machines with min failures (excluding machines with zero failures if you want)
-    top_3_min = failures_per_machine[failures_per_machine['failure'] > 0].sort_values(by='failure', ascending=True).head(3)
 
-    st.write("Top 3 machines with max failures:\n", top_3_max)
-    st.write("\nTop 3 machines with min failures:\n", top_3_min)
+    # # Convert failure column to string type
+    df5['failure'] = df5['failure'].astype(str)
+    df5['datetime'] = pd.to_datetime(df5['datetime'])
+    df5.set_index('datetime', inplace= True)
+
+    # # Group by machineId  and daily frequency, calculate daily sum
+    df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
+    df5 = df5.reset_index()
+
+    # # Normalize the datetime column
+    df5['datetime'] = df5['datetime'].dt.normalize()
+
+    # Merging datasets
+    merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
+    st.write('Shape of dataset after merging:', merge_df.shape)
+
+    merge_df['failure'] = merge_df['failure'].astype(str)
+
+    # Replace known 'nan' strings with actual NaN
+    merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+
+    # Any non-null value (non-zero, string, comp label etc.) → 1
+    merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1)
+
+    # Now it's safe to convert to int
+    merge_df['failure'] = merge_df['failure'].astype(int)
+
+    failure_counts = merge_df.groupby('machineID')['failure'].sum()
+
+    # Sort descending and get top 3
+    top_3_machines = failure_counts.sort_values(ascending=False).head(3)
+    least_3_machines = failure_counts.sort_values(ascending=True).head(3)
+
+    st.write("Top 3 Machines with most failure", top_3_machines)
+    st.write("Top 3 Machines with least failure", least_3_machines)
 
     ###############################################
     st.divider()
@@ -497,29 +509,36 @@ def page4():
     df = pd.read_csv("Datasets/PdM_telemetry.csv")
     df5 = pd.read_csv("Datasets/PdM_failures.csv")
     df['datetime'] = pd.to_datetime(df['datetime'])
+    df5['datetime'] = pd.to_datetime(df5['datetime'])
+
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).mean().reset_index()
 
     #Group by machineID and daily frequency, and calculate the daily averages
-    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
-    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
-    telemetry_daily['volt'] = telemetry_daily['volt']/24
-    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
-    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
+    # telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    # telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+    # telemetry_daily['volt'] = telemetry_daily['volt']/24
+    # telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+    # telemetry_daily['rotate'] = telemetry_daily['rotate']/24
 
     #drop any rows with missing values
     telemetry_daily = telemetry_daily.dropna()
-    # Replae failure column with binary values
-    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'copm3', 'comp4'], 1)
+    # Daily failures per machine
+    df5 = df5.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
 
-    # Convert failure column to string type
+    # Merge telemetry and failure data
+    # merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
+
+
+    # # Convert failure column to string type
     df5['failure'] = df5['failure'].astype(str)
     df5['datetime'] = pd.to_datetime(df5['datetime'])
     df5.set_index('datetime', inplace= True)
 
-    # Group by machineId  and daily frequency, calculate daily sum
+    # # Group by machineId  and daily frequency, calculate daily sum
     df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
     df5 = df5.reset_index()
 
-    # Normalize the datetime column
+    # # Normalize the datetime column
     df5['datetime'] = df5['datetime'].dt.normalize()
 
     # Merging datasets
@@ -537,6 +556,7 @@ def page4():
     # Now it's safe to convert to int
     merge_df['failure'] = merge_df['failure'].astype(int)
 
+    
 
     # Show data
     st.write(merge_df)
@@ -545,11 +565,11 @@ def page4():
     merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
     merge_df.set_index('datetime', inplace=True)
     
-
+    X = merge_df.drop(['failure','machineID'], axis=1)
+    Y = merge_df['failure']
 
     # Split data
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    X_test = X_test.drop(columns=['machineID'])
     # SMOTE
     # smote = SMOTE(random_state=42)
     # X_resampled, Y_resampled = smote.fit_resample(X_train, Y_train)
@@ -724,7 +744,7 @@ def page5():
     #drop any rows with missing values
     telemetry_daily = telemetry_daily.dropna()
     # Replae failure column with binary values
-    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'copm3', 'comp4'], 1)
+    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'comp3', 'comp4'], 1)
 
     # Convert failure column to string type
     df5['failure'] = df5['failure'].astype(str)
@@ -790,48 +810,90 @@ def page5():
 def page6(): 
     st.header(":blue[Failure Prediction by MachineID]")
     
-    telemetry_df = pd.read_csv("Datasets/PdM_telemetry.csv")
-    failure_df = pd.read_csv("Datasets/PdM_failures.csv")
-    
-    telemetry_df['datetime'] = pd.to_datetime(telemetry_df['datetime'])
-    failure_df['datetime'] = pd.to_datetime(failure_df['datetime'])
-    
+    df = pd.read_csv("Datasets/PdM_telemetry.csv")
+    df5 = pd.read_csv("Datasets/PdM_failures.csv")
+    df['datetime'] = pd.to_datetime(df['datetime'])
 
-    
-    failure_df['failure_flag'] = 1
+    #Group by machineID and daily frequency, and calculate the daily averages
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+    telemetry_daily['volt'] = telemetry_daily['volt']/24
+    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
 
+    #drop any rows with missing values
+    telemetry_daily = telemetry_daily.dropna()
+    # Replae failure column with binary values
+    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'comp3', 'comp4'], 1)
 
-    # Merge telemetry with failure on datetime and machineID, left join to keep all telemetry rows
-    merge_df = telemetry_df.merge(
-        failure_df[['datetime', 'machineID', 'failure_flag']], 
-        on=['datetime', 'machineID'], 
-        how='left'
-    )
+    # Convert failure column to string type
+    df5['failure'] = df5['failure'].astype(str)
+    df5['datetime'] = pd.to_datetime(df5['datetime'])
+    df5.set_index('datetime', inplace= True)
 
-    # Fill NaN failure_flag with 0 (means no failure at that time)
-    merge_df['failure_flag'] = merge_df['failure_flag'].fillna(0).astype(int)
+    # Group by machineId  and daily frequency, calculate daily sum
+    df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
+    df5 = df5.reset_index()
 
-    # Rename failure_flag to failure for clarity
-    merge_df = merge_df.rename(columns={'failure_flag': 'failure'})
-    st.write(merge_df)
-    
+    # Normalize the datetime column
+    df5['datetime'] = df5['datetime'].dt.normalize()
+
+    # Merging datasets
+    merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
+    # Convert failure column to string
+    merge_df['failure'] = merge_df['failure'].astype(str)
+
+    # Replace known 'nan' strings with actual NaN
+    merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+
+    # Any non-null value (non-zero, string, comp label etc.) → 1
+    merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1)
+
+    # Now it's safe to convert to int
+    merge_df['failure'] = merge_df['failure'].astype(int)
+
+    # Time and index prep
     merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
-    merge_df.set_index('datetime', inplace=True)
     
-    X = merge_df.drop(['failure','machineID'], axis=1)
-    Y = merge_df['failure']
+    # Load the saved ensemble model
+    model = joblib.load("models/ensemble_model.pkl")
+    recent_days = 5
+
+    # Get latest telemetry for each selected machine
+    latest_data = merge_df.reset_index().sort_values("datetime").groupby("machineID").tail(recent_days)
+
+    # Let user select machine IDs
+    machine_ids = st.multiselect("Select Machine IDs", merge_df['machineID'].unique())
+
+    if machine_ids:
+        selected_data = latest_data[latest_data['machineID'].isin(machine_ids)]
+
+        # Prepare X for prediction (must match training features)
+        X_input = selected_data[['volt', 'rotate', 'pressure', 'vibration']]
+
+        # Predict probabilities
+        selected_data['failure_probability'] = model.predict_proba(X_input)[:, 1]
+
+        # 1️⃣ Average failure probability per machine
+        avg_proba_per_machine = selected_data.groupby('machineID')['failure_probability'].mean().reset_index()
+
+        # 2️⃣ Calculate overall risk (mean of per-machine averages)
+        overall_failure_risk = avg_proba_per_machine['failure_probability'].mean()
+
+        # Show result
+        st.write("🔍 **Average predicted failure probability for each selected machine:**")
+        st.dataframe(avg_proba_per_machine.rename(columns={'failure_probability': 'Avg Failure Probability'}))
+
+        st.markdown(f"### 🔥 Overall Failure Probability: `{overall_failure_risk:.2f}`")
+
+    else:
+        st.info("Please select at least one machine ID.")
     
-    # Count total failures per machine
-    failures_per_machine = merge_df.groupby('machineID')['failure'].sum().reset_index()
 
-    # Top 3 machines with max failures
-    top_3_max = failures_per_machine.sort_values(by='failure', ascending=False).head(3)
+    
+    
 
-    # Top 3 machines with min failures (excluding machines with zero failures if you want)
-    top_3_min = failures_per_machine[failures_per_machine['failure'] > 0].sort_values(by='failure', ascending=True).head(3)
-
-    st.write("Top 3 machines with max failures:\n", top_3_max)
-    st.write("\nTop 3 machines with min failures:\n", top_3_min)
+   
 
     
 
