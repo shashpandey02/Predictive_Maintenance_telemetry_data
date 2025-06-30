@@ -7,3 +7,4 @@ scikit_learn
 seaborn
 statsmodels
 streamlit
+joblib

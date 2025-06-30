@@ -18,33 +18,9 @@ from catboost import CatBoostClassifier
 from sklearn.ensemble import VotingClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+import altair as alt
+
 import joblib
-
-@st.cache_resource
-def train_models(X_train, y_train):
-    
-    smote = SMOTE(random_state=42, n_jobs=-1)  # Use all CPU cores
-    X_train, y_train = smote.fit_resample(X_train, y_train)
-    
-    rf_classifier = RandomForestClassifier(n_estimators=50, random_state=42, class_weight='balanced', n_jobs=-1)
-    rf_classifier.fit(X_train, y_train)
-
-    svc_pipeline = Pipeline([
-        ("scaler", StandardScaler()),  # Helps with SVM performance
-        ("svc", SVC(kernel="linear", probability=True, random_state=42))
-    ])
-    svc_pipeline.fit(X_train, y_train)
-
-    logreg = LogisticRegression(solver='saga', class_weight='balanced', max_iter=300, penalty='l2')
-    logreg.fit(X_train, y_train)
-
-    ensemble = VotingClassifier(estimators=[
-        ('rf', rf_classifier), ('svc', svc_pipeline), ('logreg', logreg)
-    ], voting='soft')
-    ensemble.fit(X_train, y_train)
-
-    return rf_classifier, svc_pipeline, logreg, ensemble
-
 
 st.set_page_config(page_title="Predictive Model", page_icon="📈")
 def page1():
@@ -253,38 +229,35 @@ def page2():
     
     df = pd.read_csv("Datasets/PdM_telemetry.csv")
     df5 = pd.read_csv("Datasets/PdM_failures.csv")
-
-
     df['datetime'] = pd.to_datetime(df['datetime'])
-    df5['datetime'] = pd.to_datetime(df5['datetime'])
 
-    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).mean().reset_index()
+    #Group by machineID and daily frequency, and calculate the daily averages
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+    telemetry_daily['volt'] = telemetry_daily['volt']/24
+    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
 
     #drop any rows with missing values
     telemetry_daily = telemetry_daily.dropna()
-    # Daily failures per machine
-    df5 = df5.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    # Replae failure column with binary values
+    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'comp3', 'comp4'], 1)
 
-    # Merge telemetry and failure data
-    # merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
-
-
-    # # Convert failure column to string type
+    # Convert failure column to string type
     df5['failure'] = df5['failure'].astype(str)
     df5['datetime'] = pd.to_datetime(df5['datetime'])
     df5.set_index('datetime', inplace= True)
 
-    # # Group by machineId  and daily frequency, calculate daily sum
+    # Group by machineId  and daily frequency, calculate daily sum
     df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
     df5 = df5.reset_index()
 
-    # # Normalize the datetime column
+    # Normalize the datetime column
     df5['datetime'] = df5['datetime'].dt.normalize()
 
     # Merging datasets
     merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
-    st.write('Shape of dataset after merging:', merge_df.shape)
-
+    # Convert failure column to string
     merge_df['failure'] = merge_df['failure'].astype(str)
 
     # Replace known 'nan' strings with actual NaN
@@ -295,6 +268,7 @@ def page2():
 
     # Now it's safe to convert to int
     merge_df['failure'] = merge_df['failure'].astype(int)
+
 
     failure_counts = merge_df.groupby('machineID')['failure'].sum()
 
@@ -403,8 +377,8 @@ def page3():
 
     # Display the shape and head of the merged DataFrame
     # st.write("Shape of merged DataFrame:", merged_df.shape)
-    st.write("Merged DataFrame:")
-    st.write(merged_df.head())
+    # st.write("Merged DataFrame:")
+    # st.write(merged_df.head())
 
     # Mean Pressure Variation by Age
     mean_pressure_by_age = merged_df.groupby('age')['pressure'].mean()
@@ -511,14 +485,14 @@ def page4():
     df['datetime'] = pd.to_datetime(df['datetime'])
     df5['datetime'] = pd.to_datetime(df5['datetime'])
 
-    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).mean().reset_index()
+    # telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).mean().reset_index()
 
     #Group by machineID and daily frequency, and calculate the daily averages
-    # telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
-    # telemetry_daily['pressure'] = telemetry_daily['pressure']/24
-    # telemetry_daily['volt'] = telemetry_daily['volt']/24
-    # telemetry_daily['vibration'] = telemetry_daily['vibration']/24
-    # telemetry_daily['rotate'] = telemetry_daily['rotate']/24
+    telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+    telemetry_daily['volt'] = telemetry_daily['volt']/24
+    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
 
     #drop any rows with missing values
     telemetry_daily = telemetry_daily.dropna()
@@ -543,7 +517,7 @@ def page4():
 
     # Merging datasets
     merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
-    st.write('Shape of dataset after merging:', merge_df.shape)
+    # st.write('Shape of dataset after merging:', merge_df.shape)
 
     merge_df['failure'] = merge_df['failure'].astype(str)
 
@@ -587,8 +561,8 @@ def page4():
     st.write("Accuracy: ", ac)
     
     # confusion Matrix
-    # cm = confusion_matrix(Y_test, y_pred)
-    # st.write(cm)
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
     
 
     st.divider()
@@ -599,8 +573,8 @@ def page4():
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
     # confusion Matrix
-    # cm = confusion_matrix(Y_test, y_pred)
-    # st.write(cm)
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
 
     # LOGISTIC REGRESSION : NEWTON METHOD
     st.divider()
@@ -610,8 +584,8 @@ def page4():
     ac = accuracy_score(Y_test, y_pred)
     st.write("Accuracy: ", ac)
     # confusion Matrix
-    # cm = confusion_matrix(Y_test, y_pred)
-    # st.write(cm)
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
     
     # Ensemble Model
     st.divider()
@@ -622,8 +596,19 @@ def page4():
     st.write("Accuracy: ", ac)
     
     # confusion Matrix
-    # cm = confusion_matrix(Y_test, y_pred)
-    # st.write(cm)
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
+    
+    st.divider()
+    cat = joblib.load('models/catBoost.pkl')
+    st.header("CatBoost Classifier")
+    y_pred = cat.predict(X_test)
+    ac = accuracy_score(Y_test, y_pred)
+    st.write("Accuracy", ac)
+    
+    cm = confusion_matrix(Y_test, y_pred)
+    st.write(cm)
+    
     
 
     # # Train RandomForest
@@ -808,86 +793,206 @@ def page5():
                 st.success(f"✅ No Failure Predicted. Failure Probability: **{probability:.2%}**")
 
 def page6(): 
-    st.header(":blue[Failure Prediction by MachineID]")
+#     st.header(":blue[Failure Prediction by MachineID]")
     
+#     df = pd.read_csv("Datasets/PdM_telemetry.csv")
+#     df5 = pd.read_csv("Datasets/PdM_failures.csv")
+#     df['datetime'] = pd.to_datetime(df['datetime'])
+
+#     #Group by machineID and daily frequency, and calculate the daily averages
+#     telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
+#     telemetry_daily['pressure'] = telemetry_daily['pressure']/24
+#     telemetry_daily['volt'] = telemetry_daily['volt']/24
+#     telemetry_daily['vibration'] = telemetry_daily['vibration']/24
+#     telemetry_daily['rotate'] = telemetry_daily['rotate']/24
+
+#     #drop any rows with missing values
+#     telemetry_daily = telemetry_daily.dropna()
+#     # Replae failure column with binary values
+#     df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'comp3', 'comp4'], 1)
+
+#     # Convert failure column to string type
+#     df5['failure'] = df5['failure'].astype(str)
+#     df5['datetime'] = pd.to_datetime(df5['datetime'])
+#     df5.set_index('datetime', inplace= True)
+
+#     # Group by machineId  and daily frequency, calculate daily sum
+#     df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
+#     df5 = df5.reset_index()
+
+#     # Normalize the datetime column
+#     df5['datetime'] = df5['datetime'].dt.normalize()
+
+#     # Merging datasets
+#     merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
+#     # Convert failure column to string
+#     merge_df['failure'] = merge_df['failure'].astype(str)
+
+#     # Replace known 'nan' strings with actual NaN
+#     merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+
+#     # Any non-null value (non-zero, string, comp label etc.) → 1
+#     merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1)
+
+#     # Now it's safe to convert to int
+#     merge_df['failure'] = merge_df['failure'].astype(int)
+
+#     # Time and index prep
+#     merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
+    
+#     # Load the saved ensemble model
+#     model = joblib.load("models/ensemble_model.pkl")
+#     recent_days = 5
+# ################################################################################
+
+#     # # -------------------- Streamlit UI -------------------- #
+#     st.title("🔧 Predictive Maintenance Dashboard")
+#     st.markdown("Monitor your machines and assess failure risk using machine learning predictions.")
+
+#     # # Load model
+#     # model = joblib.load("models/ensemble_model.pkl")
+
+#     # # User selects recent window and machines
+#     # recent_days = 5
+#     machine_ids = st.multiselect("🛠️ Select Machine IDs to Evaluate", merge_df['machineID'].unique())
+
+#     if machine_ids:
+#         # Filter and sort for latest days
+#         latest_data = merge_df.sort_values("datetime").groupby("machineID").tail(recent_days)
+#         selected_data = latest_data[latest_data['machineID'].isin(machine_ids)].copy()
+
+#         if selected_data.shape[0] < len(machine_ids) * recent_days:
+#             st.warning("⚠️ Some machines may not have telemetry data for the last 5 days.")
+
+#         # Prepare input features
+#         feature_cols = ['volt', 'rotate', 'pressure', 'vibration']
+#         X_input = selected_data[feature_cols]
+        
+#         # Predict failure probability
+#         selected_data['failure_probability'] = model.predict_proba(X_input)[:, 1]
+
+#         # Categorize risk level
+#         def categorize_risk(p):
+#             if p >= 0.7: return "High 🔴"
+#             elif p >= 0.4: return "Medium 🟠"
+#             else: return "Low 🟢"
+        
+#         # Compute average probabilities
+#         avg_proba = selected_data.groupby('machineID')['failure_probability'].mean().reset_index()
+#         avg_proba['Risk Level'] = avg_proba['failure_probability'].apply(categorize_risk)
+
+#         # Show table
+#         st.subheader("📊 Average Predicted Failure Probability")
+#         st.dataframe(avg_proba.rename(columns={'failure_probability': 'Avg Failure Probability'}))
+
+#         # Overall failure risk (mean across machines)
+#         overall_risk = avg_proba['failure_probability'].mean()
+#         st.markdown(f"### 🔥 Overall Failure Risk (mean): `{overall_risk:.2f}`")
+
+#         # Line chart: Failure probability over recent days
+#         st.subheader("📈 Failure Probability Over Time")
+#         chart = alt.Chart(selected_data).mark_line(point=True).encode(
+#             x='datetime:T',
+#             y='failure_probability:Q',
+#             color='machineID:N',
+#             tooltip=['machineID', 'datetime', 'failure_probability']
+#         ).properties(width=700)
+#         st.altair_chart(chart, use_container_width=True)
+
+#     else:
+#         st.info("Please select at least one machine ID to view predictions.")
+
+    # === Load Data ===
     df = pd.read_csv("Datasets/PdM_telemetry.csv")
     df5 = pd.read_csv("Datasets/PdM_failures.csv")
+
     df['datetime'] = pd.to_datetime(df['datetime'])
 
-    #Group by machineID and daily frequency, and calculate the daily averages
+    # Group by machineID and daily frequency, calculate daily averages
     telemetry_daily = df.groupby(['machineID', pd.Grouper(key='datetime', freq='D')]).sum().reset_index()
-    telemetry_daily['pressure'] = telemetry_daily['pressure']/24
-    telemetry_daily['volt'] = telemetry_daily['volt']/24
-    telemetry_daily['vibration'] = telemetry_daily['vibration']/24
-    telemetry_daily['rotate'] = telemetry_daily['rotate']/24
-
-    #drop any rows with missing values
+    telemetry_daily[['volt', 'rotate', 'pressure', 'vibration']] /= 24
     telemetry_daily = telemetry_daily.dropna()
-    # Replae failure column with binary values
-    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'comp3', 'comp4'], 1)
 
-    # Convert failure column to string type
-    df5['failure'] = df5['failure'].astype(str)
+    # Process failure data
+    df5['failure'] = df5['failure'].replace(['comp1', 'comp2', 'comp3', 'comp4'], 1).astype(str)
     df5['datetime'] = pd.to_datetime(df5['datetime'])
-    df5.set_index('datetime', inplace= True)
-
-    # Group by machineId  and daily frequency, calculate daily sum
-    df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum()
-    df5 = df5.reset_index()
-
-    # Normalize the datetime column
+    df5.set_index('datetime', inplace=True)
+    df5 = df5.groupby(['machineID', pd.Grouper(freq='D')]).sum().reset_index()
     df5['datetime'] = df5['datetime'].dt.normalize()
 
-    # Merging datasets
+    # Merge telemetry with failure data
     merge_df = pd.merge(telemetry_daily, df5, on=['machineID', 'datetime'], how='left')
-    # Convert failure column to string
-    merge_df['failure'] = merge_df['failure'].astype(str)
-
-    # Replace known 'nan' strings with actual NaN
     merge_df['failure'] = merge_df['failure'].replace('nan', np.nan)
+    merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1).astype(int)
 
-    # Any non-null value (non-zero, string, comp label etc.) → 1
-    merge_df['failure'] = merge_df['failure'].apply(lambda x: 0 if pd.isna(x) or x == '0' else 1)
+    # Historical failure count
+    failure_counts = merge_df.groupby('machineID')['failure'].sum()
+    top_3_ids = failure_counts.sort_values(ascending=False).head(3).index.tolist()
 
-    # Now it's safe to convert to int
-    merge_df['failure'] = merge_df['failure'].astype(int)
+    # === Load Model ===
+    model = joblib.load("models/ensemble_model.pkl")  # Update path if needed
 
-    # Time and index prep
-    merge_df['datetime'] = pd.to_datetime(merge_df['datetime'])
-    
-    # Load the saved ensemble model
-    model = joblib.load("models/ensemble_model.pkl")
-    recent_days = 5
+    # === Streamlit UI ===
+    st.title("🔍 Machine Failure Risk Dashboard")
 
-    # Get latest telemetry for each selected machine
-    latest_data = merge_df.reset_index().sort_values("datetime").groupby("machineID").tail(recent_days)
+    recent_days = 90  # Define how many recent days to evaluate
 
-    # Let user select machine IDs
-    machine_ids = st.multiselect("Select Machine IDs", merge_df['machineID'].unique())
+    machine_ids = st.multiselect(
+        "🛠️ Select Machine IDs to Evaluate",
+        options=merge_df['machineID'].unique(),
+        # default=top_3_ids
+    )
 
     if machine_ids:
-        selected_data = latest_data[latest_data['machineID'].isin(machine_ids)]
+        # Filter latest N days of data per machine
+        latest_data = merge_df.sort_values("datetime").groupby("machineID").tail(recent_days)
+        selected_data = latest_data[latest_data['machineID'].isin(machine_ids)].copy()
 
-        # Prepare X for prediction (must match training features)
-        X_input = selected_data[['volt', 'rotate', 'pressure', 'vibration']]
+        if selected_data.shape[0] < len(machine_ids) * recent_days:
+            st.warning("⚠️ Some machines may not have telemetry data for the last 5 days.")
 
-        # Predict probabilities
-        selected_data['failure_probability'] = model.predict_proba(X_input)[:, 1]
+        # Predict
+        feature_cols = ['volt', 'rotate', 'pressure', 'vibration']
+        selected_data['failure_probability'] = model.predict_proba(selected_data[feature_cols])[:, 1]
 
-        # 1️⃣ Average failure probability per machine
-        avg_proba_per_machine = selected_data.groupby('machineID')['failure_probability'].mean().reset_index()
+        # Categorize Risk based on max probability
+        def categorize_risk(p):
+            if p >= 0.7: return "High 🔴"
+            elif p >= 0.4: return "Medium 🟠"
+            else: return "Low 🟢"
 
-        # 2️⃣ Calculate overall risk (mean of per-machine averages)
-        overall_failure_risk = avg_proba_per_machine['failure_probability'].mean()
+        # Compute MAX failure probability per machine
+        max_proba = selected_data.groupby('machineID')['failure_probability'].max().reset_index()
+        max_proba['Risk Level'] = max_proba['failure_probability'].apply(categorize_risk)
 
-        # Show result
-        st.write("🔍 **Average predicted failure probability for each selected machine:**")
-        st.dataframe(avg_proba_per_machine.rename(columns={'failure_probability': 'Avg Failure Probability'}))
+        # Merge with historical failure count
+        max_proba = max_proba.merge(failure_counts, on='machineID', how='left')
+        max_proba.rename(columns={
+            'failure_probability': 'Max Failure Probability',
+            'failure': 'Total Historical Failures'
+        }, inplace=True)
 
-        st.markdown(f"### 🔥 Overall Failure Probability: `{overall_failure_risk:.2f}`")
+        # Show risk table
+        st.subheader("📊 Max Predicted Failure Probability")
+        st.dataframe(max_proba.sort_values("Max Failure Probability", ascending=False))
 
-    else:
-        st.info("Please select at least one machine ID.")
+        # Show overall max risk
+        overall_max = max_proba['Max Failure Probability'].mean()
+        st.markdown(f"### 🔥 Overall Max Failure Risk: `{overall_max:.2f}`")
+
+        # Line chart for daily failure probability
+        st.subheader("📈 Failure Probability Over Time")
+        selected_data['datetime'] = pd.to_datetime(selected_data['datetime'])
+        chart = alt.Chart(selected_data).mark_line(point=True).encode(
+            x='datetime:T',
+            y='failure_probability:Q',
+            color='machineID:N',
+            tooltip=['machineID', 'datetime', 'failure_probability']
+        ).properties(width=700)
+        st.altair_chart(chart, use_container_width=True)
+
+
+
     
 
     
@@ -916,8 +1021,8 @@ pages = {
     "Errors": page2,
     "Machines, Failure + Telemetry": page3, 
     "Model Building": page4,
-    "Failure prediction":page5,
-    "Error prediction":page6
+    # "Failure prediction":page5,
+    "Failure prediction":page6
 }
 
 # Create a sidebar or navigation menu
